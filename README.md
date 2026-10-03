@@ -6,7 +6,7 @@ Local, CLI-first alignment memory for Claude Code and Codex.
 
 Keep a small Markdown graph of user-confirmed choices and their reasons. Search public session history through aichat-search, verify exact message evidence, and preserve cited versions with encrypted local backups. Automatic capture produces review checkpoints; it never writes active alignment policy by itself.
 
-**Early alpha, POSIX only.** The development environment is macOS. Linux CI is configured; its results are visible in Actions. Windows support, full large-history performance, automatic Codex 80% usage observation, and long-term alignment-quality claims are outside the current release.
+**Early alpha.** The development environment is macOS. macOS, Linux and Windows CI are configured; their results are visible in Actions. Windows runs natively (see [Windows](#windows)); live Claude/Codex hook execution on Windows has not been verified. Full large-history performance, automatic Codex 80% usage observation, and long-term alignment-quality claims are outside the current release.
 
 ## Flow
 
@@ -27,6 +27,16 @@ Persona, project progress memory, and domain knowledge have different roles. Thi
 ## Quick start
 
 Prerequisites: Python 3.11+, [uv](https://docs.astral.sh/uv/), Cargo/Rust, Git, and [restic](https://restic.net/). No API key is required for the memory CLI itself. Native Claude/Codex clients still use their own authentication.
+
+### Windows
+
+Use `py -3` (or `python`) for `python3`, and `am.cmd` (or `./am` from Git Bash) for `./am`. Additionally:
+
+- Rust needs the MSVC linker: Visual Studio Build Tools with the "Desktop development with C++" workload, then `rustup`.
+- restic **0.17 or newer** (`scoop install restic` or the release zip). Windows restores only the evidence subtree (`snapshot:path`), because restoring the full path would also restore `C:\Users` metadata and fail.
+- The active search generation is a `runtime/alignment-memory/search-current.ref` pointer file replaced atomically, instead of a symlink (symlinks need Developer Mode or admin rights). The backup password file gets a protected owner-only ACL instead of mode 0600.
+- Hook and status-line commands are written with forward-slash paths that run unchanged in Git Bash, cmd and PowerShell; paths with spaces use their 8.3 short names. A previous status line is run through Git Bash, like Claude Code does.
+- No `PYTHONUTF8` is required: files, pipes and hook I/O are explicitly UTF-8.
 
 ```sh
 git clone https://github.com/FMsongX2/personagraph.git

@@ -138,12 +138,12 @@ class Tests(unittest.TestCase):
         self.assertTrue(all(r['backend']=='aichat-search' for r in self.store.search('움')))
 
     def test_failed_search_build_preserves_previous_pair(self):
-        self.index(); previous=(self.store.root/'search-current').resolve()
+        self.index(); previous=self.store.current_generation()
         self.events.append(event('added','new material'));self.write()
         with patch.object(self.store,'build_search',side_effect=ValueError('build fixture failed')):
             with self.assertRaises(ValueError):self.index()
         hits=self.store.search('MCP');self.assertEqual(hits[0]['pending_failures'][0]['status'],'failed')
-        self.assertEqual((self.store.root/'search-current').resolve(),previous)
+        self.assertEqual(self.store.current_generation(),previous)
         self.assertEqual(self.store.status()[0]['indexed'],2)
         with self.assertRaises(ValueError):self.store.get('test-session','added')
         self.assertEqual(self.store.search('material'),[])
@@ -151,11 +151,11 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.store.search('material')[0]['pending_failures'],[])
 
     def test_noop_and_append_parse_only_new_records(self):
-        self.index();generation=(self.store.root/'search-current').resolve()
+        self.index();generation=self.store.current_generation()
         with patch.object(self.store,'build_search',side_effect=AssertionError('no rebuild expected')):
             r=self.index()
         self.assertEqual(r['mode'],'unchanged');self.assertEqual(r['parsed_records'],0)
-        self.assertEqual((self.store.root/'search-current').resolve(),generation)
+        self.assertEqual(self.store.current_generation(),generation)
         self.events.append(event('added','delta unique'));self.write()
         r=self.index();self.assertEqual(r['mode'],'append');self.assertEqual(r['parsed_records'],1)
         self.assertEqual(r['search_updated_sessions'],1);self.assertEqual(r['indexed'],3)
@@ -179,17 +179,17 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.store.find('other-session','needle')['unavailable_count'],1)
 
     def test_publication_failure_preserves_previous_pair(self):
-        self.index();previous=(self.store.root/'search-current').resolve()
+        self.index();previous=self.store.current_generation()
         self.events.append(event('added','publication needle'));self.write()
         with patch.object(self.store,'publish_generation',side_effect=OSError('publication fixture failed')):
             with self.assertRaises(OSError):self.index()
-        self.assertEqual((self.store.root/'search-current').resolve(),previous)
+        self.assertEqual(self.store.current_generation(),previous)
         self.assertEqual(self.store.status()[0]['indexed'],2)
         self.assertEqual(self.store.search('needle'),[])
         self.index();self.assertEqual(self.store.status()[0]['indexed'],3)
 
     def test_native_changes_during_search_build_rejected(self):
-        self.index();previous=(self.store.root/'search-current').resolve()
+        self.index();previous=self.store.current_generation()
         self.events.append(event('added','new capture'));self.write()
         original=self.store.build_search
         def mutate(*args,**kwargs):
@@ -198,7 +198,7 @@ class Tests(unittest.TestCase):
             return result
         with patch.object(self.store,'build_search',side_effect=mutate):
             with self.assertRaises(ValueError):self.index()
-        self.assertEqual((self.store.root/'search-current').resolve(),previous)
+        self.assertEqual(self.store.current_generation(),previous)
         self.assertEqual(self.store.status()[0]['indexed'],2)
 
     def test_failure_of_new_session_leaves_existing_session_searchable(self):
@@ -259,10 +259,10 @@ class Tests(unittest.TestCase):
               '--store',str(self.store.root),'search','never-indexed-needle'],text=True)
         result=json.loads(out);self.assertEqual(result['sessions'],[])
         self.assertEqual(result['pending_updates'][0]['status'],'failed')
-        self.assertEqual(result['generation'],(self.store.root/'search-current').resolve().name)
+        self.assertEqual(result['generation'],self.store.current_generation().name)
 
     def test_killed_import_keeps_active_pair_and_can_resume(self):
-        self.index();previous=(self.store.root/'search-current').resolve()
+        self.index();previous=self.store.current_generation()
         self.events.append(event('added','killed import needle'));self.write()
         checkpoint=self.root/'checkpoint'
         code="""import importlib.util,sys,time
@@ -282,7 +282,7 @@ s.index(sys.argv[3],'codex','test-session')
             while not checkpoint.exists() and process.poll() is None and time.monotonic()<deadline:time.sleep(.02)
             self.assertTrue(checkpoint.exists())
             process.terminate();process.communicate(timeout=5)
-            self.assertEqual((self.store.root/'search-current').resolve(),previous)
+            self.assertEqual(self.store.current_generation(),previous)
             self.assertEqual(self.store.status()[0]['indexed'],2)
             self.assertEqual(self.store.search('MCP')[0]['pending_failures'][0]['status'],'pending')
             self.index();self.assertEqual(self.store.status()[0]['indexed'],3)
@@ -294,7 +294,7 @@ s.index(sys.argv[3],'codex','test-session')
         self.index();r=self.store.get('test-session','user1',pin=True)
         hashes={str(p):m.sha(p.read_bytes()) for p in self.store.root.rglob('*') if p.is_file()}
         reader=m.Store(self.store.root,read_only=True)
-        with patch.object(m.fcntl,'flock',side_effect=AssertionError('get must not open catalog write lock')):
+        with patch.object(m.portable,'lock',side_effect=AssertionError('get must not open catalog write lock')):
             self.assertEqual(reader.get('test-session','user1')['text'],r['text'])
         self.assertEqual(reader.search('MCP')[0]['source'],'test-session')
         self.assertEqual(hashes,{str(p):m.sha(p.read_bytes()) for p in self.store.root.rglob('*') if p.is_file()})

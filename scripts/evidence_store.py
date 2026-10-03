@@ -1,7 +1,7 @@
 """Immutable evidence validation, migration, and restic-backed local recovery."""
 import contextlib
-import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,6 +13,8 @@ import tempfile
 from datetime import datetime, timezone
 
 PROJECT = Path(__file__).resolve().parents[1]
+_portable_spec=importlib.util.spec_from_file_location('personagraph_portable',Path(__file__).with_name('portable.py'))
+portable=importlib.util.module_from_spec(_portable_spec);_portable_spec.loader.exec_module(portable)
 PERMANENT = PROJECT / 'data/alignment-evidence'
 TAG = 'persona-alignment-evidence'
 
@@ -29,7 +31,7 @@ def read_snapshot(path):
     path = Path(path)
     if path.is_symlink() or not path.is_file():
         raise ValueError('snapshot must be a regular file')
-    r = json.loads(path.read_text())
+    r = json.loads(path.read_text(encoding='utf-8'))
     if not all(isinstance(r.get(k),str) for k in ('source','id','hash','text','role','origin')):
         raise ValueError('invalid evidence record')
     if r['role'] not in ('user','assistant') or r['origin'] != ('human_message' if r['role']=='user' else 'assistant_public'):
@@ -43,8 +45,7 @@ def read_snapshot(path):
 def lock(folder):
     folder = Path(folder)
     folder.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-    with (folder.parent / ('.'+folder.name+'.lock')).open('a') as f:
-        fcntl.flock(f,fcntl.LOCK_EX)
+    with portable.locked(folder.parent / ('.'+folder.name+'.lock')):
         yield
 
 
@@ -55,10 +56,8 @@ def atomic(path, raw):
     try:
         with os.fdopen(fd,'wb') as f:
             f.write(raw);f.flush();os.fsync(f.fileno())
-        os.replace(temp,path)
-        directory = os.open(path.parent,os.O_RDONLY)
-        try: os.fsync(directory)
-        finally: os.close(directory)
+        portable.replace(temp,path)
+        portable.fsync_directory(path.parent)
     finally:
         if os.path.exists(temp): os.unlink(temp)
 
@@ -82,7 +81,7 @@ def merge_files(source, target, require_manifest=False):
         manifest_path=source/'.manifest.json'
         if manifest_path.is_symlink() or not manifest_path.is_file():
             raise ValueError('restored manifest must be a regular file')
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
         if manifest.get('version')!=1 or manifest.get('files')!=entries:
             raise ValueError('restored evidence manifest mismatch')
     target.mkdir(parents=True,exist_ok=True,mode=0o700)
@@ -112,7 +111,7 @@ class Backup:
         binary=shutil.which('restic')
         if not binary: raise ValueError('restic not installed; install restic before backing up')
         p=subprocess.run([binary,'--repo',str(self.repository),'--password-file',str(self.password),
-                          '--cache-dir',str(self.cache),*args],capture_output=True,text=True,timeout=60)
+                          '--cache-dir',str(self.cache),*args],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=60)
         if p.returncode:
             raise ValueError('restic failed: '+p.stderr[-1200:])
         return p.stdout
@@ -123,10 +122,11 @@ class Backup:
             if (self.repository/'config').exists():
                 raise ValueError('backup password is missing; cannot replace an existing repository key')
             fd=os.open(self.password,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+            portable.make_private(self.password)  # Windows ignores the mode; apply an owner-only ACL before writing
             with os.fdopen(fd,'w') as f:
                 f.write(secrets.token_urlsafe(48)+'\n');f.flush();os.fsync(f.fileno())
-        if self.password.is_symlink() or self.password.stat().st_mode & 0o077:
-            raise ValueError('backup password file must be private (0600)')
+        if not portable.is_private(self.password):
+            raise ValueError('backup password file must be private (0600 / owner-only ACL)')
         self.repository.mkdir(parents=True,exist_ok=True,mode=0o700)
         if not (self.repository/'config').exists(): self.run(['init'])
 
@@ -136,7 +136,7 @@ class Backup:
             entries=inventory(self.evidence)
             self.setup()
             dataset=digest(json.dumps(entries,sort_keys=True))
-            previous=json.loads(self.state.read_text()) if self.state.exists() else {}
+            previous=json.loads(self.state.read_text(encoding='utf-8')) if self.state.exists() else {}
             if previous.get('dataset')==dataset and previous.get('snapshot'):
                 saved=json.loads(self.run(['snapshots','--json','--tag',TAG,previous['snapshot']]))
                 if len(saved)==1 and saved[0]['id']==previous['snapshot']:
@@ -171,8 +171,14 @@ class Backup:
         staging=Path(tempfile.mkdtemp(prefix='evidence-restore-',dir=PROJECT/'runtime'))
         try:
             # Restore to isolated staging. Never let restic overwrite live evidence directly.
-            self.run(['restore',snapshots[0]['id'],'--target',str(staging),'--verify'])
-            recovered=staging/original.relative_to(original.anchor)
+            if portable.WINDOWS:
+                # Restoring the full path also restores C:/Users' ACL and then fails on its metadata;
+                # restore only the evidence subtree (restic >= 0.17), directly into staging.
+                self.run(['restore',snapshots[0]['id']+':'+portable.snapshot_subtree(original),'--target',str(staging),'--verify'])
+                recovered=staging
+            else:
+                self.run(['restore',snapshots[0]['id'],'--target',str(staging),'--verify'])
+                recovered=staging/original.relative_to(original.anchor)
             with lock(target): result=merge_files(recovered,target,require_manifest=True)
             return dict(result,status='restored',snapshot=snapshots[0]['id'],target=str(target))
         finally: shutil.rmtree(staging)

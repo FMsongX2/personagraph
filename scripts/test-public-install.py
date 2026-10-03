@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import importlib.util,json,os,shutil,tempfile,unittest,subprocess
+import importlib.util,json,os,shutil,stat,tempfile,unittest,subprocess
 from unittest.mock import patch
 from pathlib import Path
 PROJECT=Path(__file__).resolve().parents[1]
@@ -11,7 +11,9 @@ search_installer=load('search_installer','install-aichat-search.py')
 
 class Tests(unittest.TestCase):
     def setUp(self):self.root=Path(tempfile.mkdtemp(prefix='public-install-test-',dir=PROJECT/'runtime'))
-    def tearDown(self):shutil.rmtree(self.root)
+    def tearDown(self):
+        # Git object files are read-only; Windows refuses to delete them until writable.
+        shutil.rmtree(self.root,onerror=lambda f,p,_:(os.chmod(p,stat.S_IWRITE),f(p)))
     def test_preview_and_apply_preserve_user_hooks_without_orca(self):
         claude=self.root/'claude';codex=self.root/'codex';claude.mkdir();codex.mkdir()
         old={'hooks':{'Stop':[{'hooks':[{'type':'command','command':'echo existing'}]}]},'other_setting':True}
@@ -44,7 +46,7 @@ class Tests(unittest.TestCase):
             search_installer.ensure_checkout(checkout)
             search_installer.ensure_checkout(checkout)
         self.assertEqual(git(checkout,'rev-parse','HEAD'),commit)
-        self.assertEqual(git(checkout,'rev-parse','--show-toplevel'),str(checkout.resolve()))
+        self.assertEqual(Path(git(checkout,'rev-parse','--show-toplevel')).resolve(),checkout.resolve())
         self.assertEqual(cache.read_text(),'keep cache')
         self.assertEqual(git(parent,'rev-parse','HEAD'),parent_head)
 

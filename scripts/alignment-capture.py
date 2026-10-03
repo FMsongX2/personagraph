@@ -2,7 +2,6 @@
 """Lifecycle metadata queue -> public-session index -> unpromoted review checkpoint."""
 import argparse
 import contextlib
-import fcntl
 import importlib.util
 import json
 import math
@@ -17,6 +16,7 @@ PROJECT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('alignment_memory',Path(__file__).with_name('alignment-memory.py'))
 am=importlib.util.module_from_spec(spec);spec.loader.exec_module(am)
 e=am.evidence
+portable=e.portable
 DEFAULT=PROJECT/'data/capture-queue'
 EVENTS={'SessionStart','UserPromptSubmit','Stop','SessionEnd','PreCompact','PostCompact','Interrupt'}
 
@@ -28,7 +28,7 @@ class Capture:
         self.root.mkdir(parents=True,exist_ok=True,mode=0o700)
         self.store=Path(store or am.DEFAULT).resolve()
         configured_roots=PROJECT/'data/capture-roots.json'
-        if roots is None and configured_roots.exists():roots=json.loads(configured_roots.read_text())
+        if roots is None and configured_roots.exists():roots=json.loads(configured_roots.read_text(encoding='utf-8'))
         self.roots=roots or {'codex':[Path(os.environ.get('CODEX_HOME') or str(Path.home()/'.codex'))/'sessions',Path(os.environ.get('CODEX_HOME') or str(Path.home()/'.codex'))/'archived_sessions'],
                             'claude':[Path(os.environ.get('CLAUDE_CONFIG_DIR') or str(Path.home()/'.claude'))/'projects']}
         self.spawn=spawn
@@ -38,10 +38,9 @@ class Capture:
 
     @contextlib.contextmanager
     def locked(self):
-        with (self.root/'.lock').open('a') as lock:
-            fcntl.flock(lock,fcntl.LOCK_EX)
+        with portable.locked(self.root/'.lock'):
             path=self.root/'registry.json'
-            state=json.loads(path.read_text()) if path.exists() else {'sessions':{}}
+            state=json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'sessions':{}}
             yield state
             e.atomic(path,(json.dumps(state,ensure_ascii=False)+'\n').encode())
 
@@ -88,13 +87,13 @@ class Capture:
         if self.spawn:
             subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'worker','--retry'],
                              stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
-                             start_new_session=True,close_fds=True)
+                             close_fds=True,**portable.detached())
         return {'status':'queued','key':key,'version':version,'checkpoint_requested':checkpoint}
 
     def eligibility(self,job):
         path=Path(job['path'])
         if not path.is_file():raise ValueError('transcript not ready or missing')
-        if '/subagents/' in str(path) or path.name.startswith('agent-'):return False,'subagent'
+        if 'subagents' in path.parts[:-1] or path.name.startswith('agent-'):return False,'subagent'
         with path.open('rb') as f:
             for _ in range(30):
                 line=f.readline(1048577)
@@ -121,7 +120,7 @@ class Capture:
         for generation,reasons in job['checkpoint_reasons'].items():
             folder=self.checkpoints/key;folder.mkdir(mode=0o700,exist_ok=True)
             target=folder/(generation+'.json')
-            prior=json.loads(target.read_text()) if target.exists() else {}
+            prior=json.loads(target.read_text(encoding='utf-8')) if target.exists() else {}
             if prior.get('status')=='reviewed' and prior.get('public_fingerprint')==fingerprint:continue
             reviews=list(prior.get('previous_reviews',[]))
             if prior.get('status')=='reviewed':reviews.append({'public_fingerprint':prior.get('public_fingerprint'),'review':prior.get('review')})
@@ -136,7 +135,7 @@ class Capture:
     def worker(self,retry=False):
         lock=(self.root/'.worker-lock').open('a')
         try:
-            try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            try:portable.lock(lock,blocking=False)
             except BlockingIOError:return {'status':'worker-already-running'}
             if retry:
                 with self.locked() as registry:
@@ -148,7 +147,7 @@ class Capture:
                     pending=[(k,dict(s)) for k,s in registry['sessions'].items() if s['status']=='pending']
                     if not pending:
                         # Release worker ownership while queue lock is held: a new enqueue cannot miss wakeup.
-                        fcntl.flock(lock,fcntl.LOCK_UN)
+                        portable.unlock(lock)
                         return {'status':'drained','processed':completed}
                 for key,job in pending:
                     try:
@@ -183,7 +182,7 @@ class Capture:
         with self.locked() as registry:return registry
 
     def review_pending(self):
-        return [str(p) for p in self.checkpoints.glob('*/*.json') if json.loads(p.read_text()).get('status')=='needs-review']
+        return [str(p) for p in self.checkpoints.glob('*/*.json') if json.loads(p.read_text(encoding='utf-8')).get('status')=='needs-review']
 
     def acknowledge(self,path,outcome,nodes=()):
         path=Path(path).resolve()
@@ -198,7 +197,7 @@ class Capture:
             evidence_nodes.append({'path':str(node),'hash':am.sha(node.read_bytes())})
         if outcome=='recorded' and not evidence_nodes:raise ValueError('recorded review requires existing MD evidence')
         with self.locked():
-            record=json.loads(path.read_text())
+            record=json.loads(path.read_text(encoding='utf-8'))
             if record.get('kind')!='alignment-review-checkpoint':raise ValueError('not a checkpoint')
             record['status']='needs-review' if outcome=='deferred' else 'reviewed'
             record['review']={'outcome':outcome,'nodes':evidence_nodes,'at':datetime.now(timezone.utc).isoformat(),
@@ -209,6 +208,7 @@ class Capture:
 
 def main():
     os.umask(0o077)
+    portable.utf8_stdio()
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='command',required=True)
     q=sub.add_parser('hook');q.add_argument('--provider',choices=['codex','claude'],required=True);q.add_argument('--statusline',action='store_true')
     q=sub.add_parser('worker');q.add_argument('--retry',action='store_true')

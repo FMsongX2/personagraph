@@ -1,1 +1,6 @@
 docs/diagrams/*.html linguist-generated=true -whitespace
+am text eol=lf
+*.sh text eol=lf
+*.cmd text eol=crlf
+# Byte-compared and applied with git apply; never convert line endings.
+*.patch -text

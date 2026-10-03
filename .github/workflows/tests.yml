@@ -3,9 +3,13 @@ on: [push, pull_request]
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,7 +22,13 @@ jobs:
           workspaces: runtime/aichat-upstream/rust-search-ui
       - name: Install backup dependency
         run: |
-          if [ "$RUNNER_OS" = "macOS" ]; then brew install restic; else sudo apt-get update && sudo apt-get install -y restic; fi
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install restic
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            # Pinned release; Windows restore uses snapshot:subtree syntax (restic >= 0.17).
+            curl -sSL -o restic.zip https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_windows_amd64.zip
+            mkdir -p "$HOME/restic" && unzip -q restic.zip -d "$HOME/restic" && mv "$HOME"/restic/restic_*.exe "$HOME/restic/restic.exe"
+            cygpath -w "$HOME/restic" >> "$GITHUB_PATH"
+          else sudo apt-get update && sudo apt-get install -y restic; fi
       - name: Prepare private synthetic notebook
         run: python scripts/init-memory.py
       - name: Install pinned search engine
