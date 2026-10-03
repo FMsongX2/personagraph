@@ -8,10 +8,11 @@
       "check": "pass",
       "browser-check": "pass"
     },
-    "visualReview": "not-requested",
+    "visualReview": "passed",
     "specification_sha256": "f380b0e9ae8f10faf739d8f2fc06834a83e9aae165039ca30486005919090361",
     "artifact_sha256": "18003fec576683be23d796caf87b3651ab78f798bc8dfbfd1a1831a505aac12e",
-    "repository_revision": "1f0372f7e2ad0f9252b76e7dcded1d76162bb88a"
+    "repository_revision": "1f0372f7e2ad0f9252b76e7dcded1d76162bb88a",
+    "visual_review_scope": "1440x900 light capture inspected; branching, labels and containment readable"
   },
   "evidence": {
     "type": "workflow",

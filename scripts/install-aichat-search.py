@@ -13,16 +13,29 @@ REPO = 'https://github.com/pchalasani/claude-code-tools.git'
 def run(args, **kw):
     return subprocess.run(args, check=True, **kw)
 
-def main():
-    (PROJECT/'runtime').mkdir(parents=True,exist_ok=True)
-    source = PROJECT/'runtime/aichat-upstream'
-    if not source.exists(): run(['git','clone','--depth','1',REPO,str(source)])
+def ensure_checkout(source):
+    # CI may restore target/ without .git. Never let Git walk up to our own repo.
+    if not (source/'.git').exists():
+        source.mkdir(parents=True,exist_ok=True)
+        run(['git','init',str(source)])
+        run(['git','-C',str(source),'remote','add','origin',REPO])
+        run(['git','-C',str(source),'fetch','--depth','1','origin',COMMIT])
+        run(['git','-C',str(source),'checkout','--detach',COMMIT])
+    top = subprocess.check_output(['git','-C',str(source),'rev-parse','--show-toplevel'],text=True).strip()
+    if Path(top).resolve() != source.resolve(): raise RuntimeError('upstream checkout resolves to a different repository')
+    origin = subprocess.check_output(['git','-C',str(source),'remote','get-url','origin'],text=True).strip()
+    if origin != REPO: raise RuntimeError('unexpected upstream repository; preserve checkout before replacing it')
     head = subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
     if head != COMMIT:
         if subprocess.check_output(['git','-C',str(source),'status','--porcelain'],text=True).strip():
             raise RuntimeError('upstream checkout has changes; preserve them before switching commit')
         run(['git','-C',str(source),'fetch','--depth','1','origin',COMMIT])
         run(['git','-C',str(source),'checkout','--detach',COMMIT])
+
+def main():
+    (PROJECT/'runtime').mkdir(parents=True,exist_ok=True)
+    source = PROJECT/'runtime/aichat-upstream'
+    ensure_checkout(source)
     patch = PROJECT/'third_party/aichat-search/index-path.patch'
     applied = subprocess.run(['git','-C',str(source),'apply','--unidiff-zero','--reverse','--check',str(patch)],capture_output=True).returncode==0
     if not applied: run(['git','-C',str(source),'apply','--unidiff-zero','--check',str(patch)]); run(['git','-C',str(source),'apply','--unidiff-zero',str(patch)])
