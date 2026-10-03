@@ -1,0 +1,4 @@
+[note]
+language = "en"
+extension = "md"
+filename = "{{id}}-{{slug title}}"

@@ -1,6 +1,6 @@
-runtime/
-data/
-memory/
+/runtime/
+/data/
+/memory/
 __pycache__/
 *.pyc
 .DS_Store
