@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Install pinned MIT aichat-search into this device's PersonaGraph runtime."""
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import shutil
 import subprocess
 
 PROJECT = Path(__file__).resolve().parents[1]
+_spec = importlib.util.spec_from_file_location('personagraph_portable', Path(__file__).with_name('portable.py'))
+portable = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(portable)
 COMMIT = '0ca732006a387dfe38a601a4959197ce0df778d8'
 REPO = 'https://github.com/pchalasani/claude-code-tools.git'
 
@@ -18,6 +21,8 @@ def ensure_checkout(source):
     if not (source/'.git').exists():
         source.mkdir(parents=True,exist_ok=True)
         run(['git','init',str(source)])
+        # Upstream sources must stay byte-identical to the pinned commit (Windows defaults to autocrlf).
+        run(['git','-C',str(source),'config','core.autocrlf','false'])
         run(['git','-C',str(source),'remote','add','origin',REPO])
         run(['git','-C',str(source),'fetch','--depth','1','origin',COMMIT])
         run(['git','-C',str(source),'checkout','--detach',COMMIT])
@@ -42,18 +47,20 @@ def main():
     # Refuse unexpected source changes rather than shipping an unrecorded binary.
     changed = subprocess.check_output(['git','-C',str(source),'diff','--name-only'],text=True).splitlines()
     if changed != ['rust-search-ui/src/main.rs']: raise RuntimeError('unexpected upstream checkout changes')
-    actual = subprocess.check_output(['git','-C',str(source),'diff','--unified=0','--','rust-search-ui/src/main.rs'])
+    # core.autocrlf would rewrite the diff's line endings on Windows checkouts.
+    actual = subprocess.check_output(['git','-C',str(source),'-c','core.autocrlf=false','diff','--unified=0','--','rust-search-ui/src/main.rs'])
     if actual != patch.read_bytes(): raise RuntimeError('unexpected local search patch')
     run(['cargo','build','--release','--locked','--manifest-path',str(source/'rust-search-ui/Cargo.toml')])
     venv = PROJECT/'runtime/aichat-python'
-    if not (venv/'bin/python').exists(): run(['uv','venv','--python','3.12',str(venv)])
-    run(['uv','pip','install','--python',str(venv/'bin/python'),'tantivy==0.25.1'])
-    target = PROJECT/'runtime/aichat-bin/aichat-search'; target.parent.mkdir(parents=True,exist_ok=True)
-    shutil.copy2(source/'rust-search-ui/target/release/aichat-search',target)
+    python = portable.venv_python(venv)
+    if not python.exists(): run(['uv','venv','--python','3.12',str(venv)])
+    run(['uv','pip','install','--python',str(python),'tantivy==0.25.1'])
+    target = portable.executable(PROJECT/'runtime/aichat-bin/aichat-search'); target.parent.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(portable.executable(source/'rust-search-ui/target/release/aichat-search'),target)
     manifest = {'repository':REPO,'commit':COMMIT,'crate_version':'0.3.1','license':'MIT',
                 'patch':'third_party/aichat-search/index-path.patch','python_dependency':'tantivy==0.25.1',
                 'binary_sha256':hashlib.sha256(target.read_bytes()).hexdigest()}
-    (target.parent/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+    (target.parent/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(manifest,indent=2))
 
 if __name__=='__main__': main()

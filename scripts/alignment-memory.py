@@ -3,7 +3,6 @@
 import argparse
 import importlib.util
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -21,6 +20,8 @@ PROJECT = Path(__file__).resolve().parents[1]
 DEFAULT = PROJECT / 'runtime' / 'alignment-memory'
 _evidence_spec=importlib.util.spec_from_file_location('alignment_evidence_store',Path(__file__).with_name('evidence_store.py'))
 evidence=importlib.util.module_from_spec(_evidence_spec);_evidence_spec.loader.exec_module(evidence)
+portable=evidence.portable
+GENERATION=re.compile('tantivy-[0-9a-f]{32}')
 
 def sha(value):
     return hashlib.sha256(value.encode() if isinstance(value, str) else value).hexdigest()
@@ -104,18 +105,30 @@ class Store:
             raise ValueError('evidence directory must be within project data or runtime')
         if not read_only:self.snapdir.mkdir(parents=True,exist_ok=True,mode=0o700)
 
+    def current_generation(self):
+        """The published search generation: a `search-current` symlink (POSIX) or, where
+        symlinks need privileges (Windows), an atomically replaced `search-current.ref` file."""
+        link=self.root/'search-current'
+        if link.is_symlink():
+            if not link.exists(): raise ValueError('active search generation is unavailable')
+            return link.resolve()
+        pointer=self.root/'search-current.ref'
+        if not pointer.exists(): return None
+        name=pointer.read_text(encoding='utf-8').strip()
+        if not GENERATION.fullmatch(name) or not (self.root/name).is_dir():
+            raise ValueError('active search generation is unavailable')
+        return (self.root/name).resolve()
+
     @property
     def dbpath(self):
         if self.catalog_override: return self.catalog_override
-        current=self.root/'search-current'
-        if current.is_symlink() and not current.exists():
-            raise ValueError('active search generation is unavailable')
-        if (current/'catalog.sqlite').exists(): return current/'catalog.sqlite'
+        current=self.current_generation()
+        if current and (current/'catalog.sqlite').exists(): return current/'catalog.sqlite'
         return self.bootstrap_db
 
     def pending_updates(self):
         path=self.root/'update-status.json'
-        return json.loads(path.read_text()) if path.exists() else {}
+        return json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
 
     def record_update(self,path,source,state,error=None):
         jobs=self.pending_updates()
@@ -147,8 +160,7 @@ class Store:
             try:yield db
             finally:db.close()
             return
-        with (self.root / '.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with portable.locked(self.root / '.lock'):
             db = sqlite3.connect(self.dbpath)
             db.row_factory = sqlite3.Row
             try:
@@ -167,8 +179,7 @@ class Store:
         path=Path(path).resolve(strict=True)
         if not path.is_file() or path.is_relative_to(self.root):
             raise ValueError('source must be a native transcript outside the store')
-        with (self.root/'.search-lock').open('a') as lock:
-            fcntl.flock(lock,fcntl.LOCK_EX)
+        with portable.locked(self.root/'.search-lock'):
             target=None
             try:
                 with self.database() as db:
@@ -186,10 +197,9 @@ class Store:
                         raise ValueError('relocated source does not match indexed prefix')
                 elif old and old['path']!=str(path):
                     raise ValueError('relocated source is shorter than indexed prefix')
-                current=self.root/'search-current'
-                previous=current.resolve() if current.exists() else None
-                old_manifest=json.loads((current/'evidence-map.json').read_text()) if (current/'evidence-map.json').exists() else {}
-                compatible=old_manifest.get('format')=='session-candidates-v3' and (current/'catalog.sqlite').exists()
+                previous=self.current_generation()
+                old_manifest=json.loads((previous/'evidence-map.json').read_text(encoding='utf-8')) if previous and (previous/'evidence-map.json').exists() else {}
+                compatible=old_manifest.get('format')=='session-candidates-v3' and (previous/'catalog.sqlite').exists()
                 job=self.pending_updates().get(str(path),{})
                 if old and mode=='append' and size==start and old['path']==str(path) and not old['partial'] and compatible and job.get('status') not in ('failed','pending'):
                     with self.database() as db:
@@ -281,7 +291,9 @@ class Store:
                         'unsearchable_other_records':stats['skipped'],'quarantined':len(quarantine),'partial_tail':partial,
                         'search_backend':'aichat-search','native_copied':False,'maintenance_warnings':warnings}
             except Exception as error:
-                if target and target.exists() and (not (self.root/'search-current').exists() or (self.root/'search-current').resolve()!=target):
+                try:published=self.current_generation()
+                except ValueError:published=None
+                if target and target.exists() and published!=target.resolve():
                     shutil.rmtree(target)
                 self.record_update(path,key,'failed',str(error))
                 raise
@@ -358,25 +370,27 @@ class Store:
         return dict(result,backup=backup,check=checked,target=str(self.snapdir))
 
     def build_search(self,target,changed_sources=None):
-        python=PROJECT/'runtime/aichat-python/bin/python'
+        python=portable.venv_python(PROJECT/'runtime/aichat-python')
         if not python.exists():raise ValueError('aichat index runtime missing; run installer')
         plan={'changed_sources':changed_sources}
-        (target/'update-plan.json').write_text(json.dumps(plan))
+        (target/'update-plan.json').write_text(json.dumps(plan),encoding='utf-8')
         result=subprocess.run([str(python),str(PROJECT/'scripts/aichat-index.py'),str(self.root),str(target)],
-                              capture_output=True,text=True,timeout=120)
+                              capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=120)
         if result.returncode:raise ValueError('aichat index build failed: '+result.stderr[-1500:])
         return json.loads(result.stdout)
 
     def publish_generation(self,target):
         current=self.root/'search-current'
         temp=self.root/('.search-'+uuid.uuid4().hex)
+        if portable.WINDOWS:
+            # One atomic pointer-file replacement; the previous pointer stays valid on failure.
+            with self.database():evidence.atomic(self.root/'search-current.ref',(target.name+'\n').encode())
+            return
         with self.database():
             prior=os.readlink(current) if current.is_symlink() else None
             try:
                 temp.symlink_to(target.name);os.replace(temp,current)
-                directory=os.open(self.root,os.O_RDONLY)
-                try:os.fsync(directory)
-                finally:os.close(directory)
+                portable.fsync_directory(self.root)
             except Exception:
                 if current.is_symlink() and current.resolve()==target:
                     if prior is None:current.unlink()
@@ -387,17 +401,16 @@ class Store:
                 raise
 
     def search(self, query, source=None, limit=8):
-        binary = PROJECT / 'runtime/aichat-bin/aichat-search'
-        with (self.root / '.search-lock').open('r' if self.read_only else 'a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_SH)
-            current = self.root / 'search-current'
-            if not current.exists() or not binary.exists():
+        binary = portable.executable(PROJECT / 'runtime/aichat-bin/aichat-search')
+        with portable.locked(self.root / '.search-lock', shared=True, mode='r' if self.read_only else 'a'):
+            current = self.current_generation()
+            if not current or not binary.exists():
                 raise ValueError('search backend/index missing; install and index a transcript first')
             with self.database() as db:
                 catalog = [dict(r) for r in db.execute('SELECT * FROM sources ORDER BY key')]
-            if (current/'catalog-hash').read_text() != sha(json.dumps(catalog,sort_keys=True)):
+            if (current/'catalog-hash').read_text(encoding='utf-8') != sha(json.dumps(catalog,sort_keys=True)):
                 raise ValueError('search index stale; rerun index before searching')
-            manifest = json.loads((current/'evidence-map.json').read_text())
+            manifest = json.loads((current/'evidence-map.json').read_text(encoding='utf-8'))
             if manifest.get('format') not in ('session-candidates-v2','session-candidates-v3'):
                 raise ValueError('old message-candidate index; rerun index to migrate')
             evidence_map = manifest['mapping']
@@ -406,7 +419,7 @@ class Store:
                 raise ValueError('use a nonempty content query without field selectors (max 1000 chars)')
             command = [str(binary),'--index-path',str(current),'--json','--global',
                        '--claude-home','','--codex-home','','--query',query]
-            result = subprocess.run(command,capture_output=True,text=True,timeout=30)
+            result = subprocess.run(command,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=30)
             if result.returncode:
                 raise ValueError('aichat-search failed: '+result.stderr[-1500:])
             hits = []
@@ -419,9 +432,9 @@ class Store:
                 # Discovery is a session candidate, not verified message-level evidence.
                 failed=[dict(path=path,**job) for path,job in self.pending_updates().items() if job['status'] in ('failed','pending')]
                 hits.append(dict(ref,backend='aichat-search',source_present=Path(ref['path']).is_file(),
-                                 generation=current.resolve().name,pending_failures=failed,verification='candidate-only; use find/get'))
+                                 generation=current.name,pending_failures=failed,verification='candidate-only; use find/get'))
                 if len(hits)>=limit: break
-            self.last_search_meta={'generation':current.resolve().name,'pending_updates':
+            self.last_search_meta={'generation':current.name,'pending_updates':
                 [dict(path=path,**job) for path,job in self.pending_updates().items() if job['status'] in ('failed','pending')],
                 'coverage':'last published index; unindexed appends may be absent'}
             return hits
@@ -471,12 +484,13 @@ class Store:
 
     def status(self):
         with self.database() as db:
-            current=self.root/'search-current'
-            self.last_status_generation=current.resolve().name if current.exists() else None
+            current=self.current_generation()
+            self.last_status_generation=current.name if current else None
             return [dict(r) for r in db.execute('SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.source=s.key) AS indexed FROM sources s')]
 
 def main():
     os.umask(0o077)
+    portable.utf8_stdio()
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--store', default=str(DEFAULT))
     sub = p.add_subparsers(dest='command', required=True)

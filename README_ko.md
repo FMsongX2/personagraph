@@ -6,7 +6,7 @@ Claude Code와 Codex를 위한 로컬 CLI 기반 사용자 정렬 메모리.
 
 사용자가 확인한 선택과 근거를 작은 Markdown 그래프로 보존합니다. aichat-search로 대화 세션을 찾고, 원문 메시지를 검증한 뒤 인용한 버전을 암호화된 로컬 백업으로 보존합니다. 자동 수집은 검토 체크포인트를 생성하며, 정렬 지침을 직접 작성하지 않습니다.
 
-**초기 알파 · POSIX 환경 지원.** macOS에서 개발했으며 macOS·Linux CI 결과는 Actions에서 확인할 수 있습니다. Windows 지원, 대규모 기록에서의 전체 성능 검증, Codex의 자동 80% 사용량 관측, 장기적인 사용자 정렬 효과는 현재 릴리스의 검증 범위에 포함되지 않습니다.
+**초기 알파.** macOS에서 개발했으며 macOS·Linux·Windows CI 결과는 Actions에서 확인할 수 있습니다. Windows에서도 네이티브로 동작하지만([Windows](#windows)), Windows에서 실제 Claude/Codex 훅 실행은 아직 검증하지 않았습니다. 대규모 기록에서의 전체 성능 검증, Codex의 자동 80% 사용량 관측, 장기적인 사용자 정렬 효과는 현재 릴리스의 검증 범위에 포함되지 않습니다.
 
 ## 동작 흐름
 
@@ -37,6 +37,16 @@ flowchart TD
 ## 빠른 시작
 
 필요한 도구: Python 3.11+, [uv](https://docs.astral.sh/uv/), Cargo/Rust, Git, [restic](https://restic.net/). 메모리 CLI 자체에는 API 키가 필요하지 않습니다. Claude/Codex 클라이언트의 인증은 각 클라이언트에서 관리합니다.
+
+### Windows
+
+`python3` 대신 `py -3`(또는 `python`), `./am` 대신 `am.cmd`(Git Bash에서는 `./am`)를 사용합니다. 추가로 다음이 필요합니다.
+
+- Rust 빌드에는 MSVC 링커가 필요합니다. Visual Studio Build Tools에서 "C++를 사용한 데스크톱 개발" 워크로드를 설치한 뒤 `rustup`을 설치합니다.
+- restic은 **0.17 이상**이어야 합니다(`scoop install restic` 또는 릴리스 zip). Windows에서는 근거 하위 트리만 복구(`snapshot:path`)합니다. 전체 경로를 복구하면 `C:\Users`의 메타데이터까지 복구하다 실패하기 때문입니다.
+- 활성 검색 세대는 심볼릭 링크 대신 원자적으로 교체하는 `runtime/alignment-memory/search-current.ref` 포인터 파일로 가리킵니다(심볼릭 링크는 개발자 모드나 관리자 권한이 필요합니다). 백업 비밀번호 파일은 0600 대신 상속을 끊은 소유자 전용 ACL로 보호합니다.
+- 훅과 상태 표시줄 명령은 Git Bash·cmd·PowerShell에서 그대로 실행되는 슬래시 경로로 기록합니다. 공백이 있는 경로는 8.3 짧은 이름을 씁니다. 기존 상태 표시줄 명령은 Claude Code와 같이 Git Bash로 실행합니다.
+- `PYTHONUTF8` 설정은 필요 없습니다. 파일·파이프·훅 입출력을 명시적으로 UTF-8로 처리합니다.
 
 ```sh
 git clone https://github.com/FMsongX2/personagraph.git

@@ -54,8 +54,15 @@ class Tests(unittest.TestCase):
             self.assertEqual(self.capture.status()['sessions'][result['key']]['status'],'skipped')
         self.assertEqual(self.capture.review_pending(),[])
 
+    def test_subagent_folder_skipped_with_native_separators(self):
+        folder=self.root/'session'/'subagents';folder.mkdir(parents=True)
+        nested=folder/'nested.jsonl';shutil.copyfile(self.native,nested)
+        result=self.capture.submit('codex',dict(self.payload,transcript_path=str(nested)));self.capture.worker()
+        self.assertEqual(self.capture.status()['sessions'][result['key']]['last_result']['reason'],'subagent')
+
     def test_invalid_path_and_missing_transcript(self):
-        with self.assertRaises(ValueError):self.capture.submit('codex',dict(self.payload,transcript_path='/tmp/not-approved.jsonl'))
+        outside=str(Path(tempfile.gettempdir()).resolve()/'not-approved.jsonl')
+        with self.assertRaises(ValueError):self.capture.submit('codex',dict(self.payload,transcript_path=outside))
         self.assertEqual(self.capture.submit('codex',dict(self.payload,transcript_path=None))['reason'],'missing-transcript')
 
     def test_manual_acknowledgement_does_not_write_memory(self):

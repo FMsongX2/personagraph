@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Preview or append local capture hooks, preserving existing definitions and trust."""
-import argparse,importlib.util,json,os,shlex,sys
+import argparse,importlib.util,json,os,sys
 from pathlib import Path
 from datetime import datetime,timezone
 
@@ -10,7 +10,7 @@ EVENTS=('SessionStart','UserPromptSubmit','Stop','SessionEnd','PreCompact','Post
 
 def configured(original,provider,python):
     data=json.loads(original or b'{}')
-    command=shlex.join([python,str(PROJECT/'scripts/alignment-capture.py'),'hook','--provider',provider])
+    command=e.portable.command_line([python,str(PROJECT/'scripts/alignment-capture.py'),'hook','--provider',provider])
     for event in EVENTS:
         if event=='Interrupt' and provider=='claude':continue
         groups=data.setdefault('hooks',{}).setdefault(event,[])
@@ -27,7 +27,7 @@ def install(claude_home,codex_home,apply=False,statusline=False,python=None):
     settings=claude_home/'settings.json'
     previous=None
     if statusline:
-        wrapper=shlex.join([python,str(PROJECT/'scripts/statusline-observer.py')])
+        wrapper=e.portable.command_line([python,str(PROJECT/'scripts/statusline-observer.py')])
         if new[settings].get('statusLine',{}).get('command')!=wrapper:
             previous=new[settings].get('statusLine')
             if previous and previous.get('type')!='command':raise ValueError('only command status lines can be preserved')

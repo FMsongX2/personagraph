@@ -28,8 +28,8 @@ def build(store_root, output):
     b.add_text_field('export_path', stored=True, tokenizer_name='raw')
     b.add_text_field('claude_home', stored=True, tokenizer_name='raw')
     b.add_text_field('content', stored=True)
-    changed=json.loads((output/'update-plan.json').read_text())['changed_sources']
-    previous=json.loads((output/'evidence-map.json').read_text()) if (output/'evidence-map.json').exists() else {}
+    changed=json.loads((output/'update-plan.json').read_text(encoding='utf-8'))['changed_sources']
+    previous=json.loads((output/'evidence-map.json').read_text(encoding='utf-8')) if (output/'evidence-map.json').exists() else {}
     index = tantivy.Index.open(str(output)) if changed is not None else tantivy.Index(b.build(), path=str(output))
     writer = index.writer(heap_size=15000000, num_threads=1)
     mapping=dict(previous.get('mapping',{})) if changed is not None else {}
@@ -74,8 +74,8 @@ def build(store_root, output):
             raise ValueError('upstream candidate loader supports at most 100000 sessions')
         writer.commit(); writer.wait_merging_threads()
         catalog = [dict(r) for r in db.execute('SELECT * FROM sources ORDER BY key')]
-        (output/'catalog-hash').write_text(m.sha(json.dumps(catalog,sort_keys=True)))
-        (output/'evidence-map.json').write_text(json.dumps({'format':'session-candidates-v3','mapping':mapping,'skipped':skipped},ensure_ascii=False)+'\n')
+        (output/'catalog-hash').write_text(m.sha(json.dumps(catalog,sort_keys=True)),encoding='utf-8')
+        (output/'evidence-map.json').write_text(json.dumps({'format':'session-candidates-v3','mapping':mapping,'skipped':skipped},ensure_ascii=False)+'\n',encoding='utf-8')
     return {'indexed':len(mapping),'public_messages':sum(r['public_messages'] for r in mapping.values()),'skipped':len(skipped),'updated_sessions':updated}
 
 if __name__ == '__main__':
