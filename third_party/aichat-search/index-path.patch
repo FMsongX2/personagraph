@@ -1,0 +1,16 @@
+diff --git a/rust-search-ui/src/main.rs b/rust-search-ui/src/main.rs
+index 3be80e7..aeadecd 100644
+--- a/rust-search-ui/src/main.rs
++++ b/rust-search-ui/src/main.rs
+@@ -4549,4 +4549,7 @@ fn main() -> Result<()> {
+-    let index_path = dirs::home_dir()
+-        .context("Could not find home directory")?
+-        .join(".cctools")
+-        .join("search-index");
++    // PersonaGraph: explicit local index without changing HOME or user tool configuration.
++    let args: Vec<String> = std::env::args().collect();
++    let index_path = if let Some(position) = args.iter().position(|arg| arg == "--index-path") {
++        std::path::PathBuf::from(args.get(position + 1).context("--index-path requires a directory")?)
++    } else {
++        dirs::home_dir().context("Could not find home directory")?.join(".cctools").join("search-index")
++    };
