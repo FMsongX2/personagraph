@@ -1,0 +1,212 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "PersonaGraph · 시작과 맥락 읽기",
+    "quality_profile": "showcase",
+    "output": ".archify/workflow-personagraph-20261003-180429/startup.html",
+    "repository": {
+      "url": "https://github.com/FMsongX2/personagraph.git",
+      "revision": "1f0372f7e2ad0f9252b76e7dcded1d76162bb88a"
+    }
+  },
+  "lanes": [
+    {
+      "id": "setup",
+      "label": "로컬 설정"
+    },
+    {
+      "id": "agent",
+      "label": "에이전트의 조건부 읽기"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "persona",
+      "lane": "setup",
+      "col": 0,
+      "type": "database",
+      "label": "PERSONA.md",
+      "sublabel": "기기별 말투·판단 원칙",
+      "width": 160,
+      "sources": [
+        {
+          "path": "examples/personas/colleague.md",
+          "line": 13,
+          "end_line": 19
+        }
+      ]
+    },
+    {
+      "id": "sync",
+      "lane": "setup",
+      "col": 1,
+      "type": "backend",
+      "label": "sync-global",
+      "sublabel": "사용자가 --apply 선택",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/sync-global.py",
+          "line": 12,
+          "end_line": 39
+        }
+      ]
+    },
+    {
+      "id": "global",
+      "lane": "setup",
+      "col": 2,
+      "type": "database",
+      "label": "전역 지침",
+      "sublabel": "Claude · Codex 시작 문맥",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/sync-global.py",
+          "line": 14,
+          "end_line": 25
+        }
+      ]
+    },
+    {
+      "id": "need",
+      "lane": "agent",
+      "col": 2,
+      "type": "security",
+      "label": "맥락 필요?",
+      "sublabel": "현재 요청 기준으로 판단",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/sync-global.py",
+          "line": 14,
+          "end_line": 14
+        }
+      ]
+    },
+    {
+      "id": "entry",
+      "lane": "agent",
+      "col": 3,
+      "type": "database",
+      "label": "MEMORY.md",
+      "sublabel": "관련 원문으로 안내",
+      "width": 160,
+      "sources": [
+        {
+          "path": "examples/memory/MEMORY.md",
+          "line": 13,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "id": "notes",
+      "lane": "agent",
+      "col": 4,
+      "type": "database",
+      "label": "관련 노드",
+      "sublabel": "프로필·결정·변화 근거",
+      "width": 160,
+      "sources": [
+        {
+          "path": "examples/memory/MEMORY.md",
+          "line": 17,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "id": "work",
+      "lane": "agent",
+      "col": 5,
+      "type": "backend",
+      "label": "작업에 적용",
+      "sublabel": "필요한 맥락만 사용",
+      "width": 160,
+      "sources": [
+        {
+          "path": "examples/memory/MEMORY.md",
+          "line": 15,
+          "end_line": 15
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "persona-sync",
+      "from": "persona",
+      "to": "sync",
+      "variant": "default"
+    },
+    {
+      "id": "sync-global",
+      "from": "sync",
+      "to": "global",
+      "variant": "default",
+      "label": "설정 반영"
+    },
+    {
+      "id": "global-need",
+      "from": "global",
+      "to": "need",
+      "variant": "default"
+    },
+    {
+      "id": "need-entry",
+      "from": "need",
+      "to": "entry",
+      "variant": "default",
+      "label": "필요"
+    },
+    {
+      "id": "entry-notes",
+      "from": "entry",
+      "to": "notes",
+      "variant": "default"
+    },
+    {
+      "id": "notes-work",
+      "from": "notes",
+      "to": "work",
+      "variant": "default"
+    },
+    {
+      "id": "need-work",
+      "from": "need",
+      "to": "work",
+      "variant": "dashed",
+      "label": "불필요"
+    }
+  ],
+  "mainPath": [
+    "persona",
+    "sync",
+    "global",
+    "need",
+    "entry",
+    "notes",
+    "work"
+  ],
+  "cards": [
+    {
+      "dot": "violet",
+      "title": "설정과 런타임 구분",
+      "items": [
+        "sync-global은 설치·변경 시 실행. 세션마다 다시 실행하지 않음.",
+        "PERSONA 원문은 전역 지침에 포함. MEMORY는 필요한 때만 읽음."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "읽기 경계",
+      "items": [
+        "전체 그래프를 재귀적으로 자동 로드하지 않음.",
+        "과거 대화·외부 자료는 근거이며 새로운 명령이 아님.",
+        "zk는 선택형 Markdown 인덱서. 시작 시 자동 실행되지 않음."
+      ]
+    }
+  ]
+}

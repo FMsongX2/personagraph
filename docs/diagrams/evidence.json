@@ -1,0 +1,397 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "PersonaGraph · 수집에서 정렬 그래프까지",
+    "quality_profile": "showcase",
+    "output": ".archify/workflow-personagraph-20261003-180429/evidence.html",
+    "repository": {
+      "url": "https://github.com/FMsongX2/personagraph.git",
+      "revision": "1f0372f7e2ad0f9252b76e7dcded1d76162bb88a"
+    }
+  },
+  "lanes": [
+    {
+      "id": "capture",
+      "label": "자동 수집 · 설치한 훅"
+    },
+    {
+      "id": "query",
+      "label": "CLI 검색 · 근거 확인"
+    },
+    {
+      "id": "review",
+      "label": "수동 검토 · 근거 보존"
+    },
+    {
+      "id": "memory",
+      "label": "정렬 노드 · 검토 결과"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "native",
+      "lane": "capture",
+      "col": 0,
+      "type": "database",
+      "label": "네이티브 세션",
+      "sublabel": "Claude · Codex JSONL",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-capture.py",
+          "line": 94,
+          "end_line": 110
+        }
+      ]
+    },
+    {
+      "id": "hook",
+      "lane": "capture",
+      "col": 1,
+      "type": "backend",
+      "label": "Lifecycle hook",
+      "sublabel": "허용된 메타데이터만",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-capture.py",
+          "line": 48,
+          "end_line": 87
+        }
+      ]
+    },
+    {
+      "id": "queue",
+      "lane": "capture",
+      "col": 2,
+      "type": "messagebus",
+      "label": "영속 큐",
+      "sublabel": "data/capture-queue",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-capture.py",
+          "line": 40,
+          "end_line": 46
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "lane": "capture",
+      "col": 3,
+      "type": "backend",
+      "label": "직렬 worker",
+      "sublabel": "적격 세션만 색인",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-capture.py",
+          "line": 136,
+          "end_line": 177
+        }
+      ]
+    },
+    {
+      "id": "generation",
+      "lane": "capture",
+      "col": 4,
+      "type": "database",
+      "label": "검색 세대",
+      "sublabel": "SQLite + Tantivy",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-memory.py",
+          "line": 258,
+          "end_line": 268
+        }
+      ]
+    },
+    {
+      "id": "search",
+      "lane": "query",
+      "col": 4,
+      "type": "backend",
+      "label": "am search",
+      "sublabel": "세션 후보 · 미검증",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-memory.py",
+          "line": 389,
+          "end_line": 427
+        }
+      ]
+    },
+    {
+      "id": "find",
+      "lane": "query",
+      "col": 3,
+      "type": "backend",
+      "label": "am find",
+      "sublabel": "세션 안 원문 좁히기",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-memory.py",
+          "line": 429,
+          "end_line": 442
+        }
+      ]
+    },
+    {
+      "id": "get",
+      "lane": "query",
+      "col": 2,
+      "type": "security",
+      "label": "am get/context",
+      "sublabel": "ID · 역할 · 해시 확인",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-memory.py",
+          "line": 301,
+          "end_line": 324
+        }
+      ]
+    },
+    {
+      "id": "checkpoint",
+      "lane": "query",
+      "col": 0,
+      "type": "messagebus",
+      "label": "검토 체크포인트",
+      "sublabel": "80% · 압축 전 · 종료",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-capture.py",
+          "line": 70,
+          "end_line": 82
+        }
+      ]
+    },
+    {
+      "id": "review",
+      "lane": "review",
+      "col": 1,
+      "type": "security",
+      "label": "Agent 수동 검토",
+      "sublabel": "원문·근거·변화 대조",
+      "width": 160,
+      "sources": [
+        {
+          "path": "docs/review.md",
+          "line": 3,
+          "end_line": 7
+        }
+      ]
+    },
+    {
+      "id": "pin",
+      "lane": "review",
+      "col": 2,
+      "type": "backend",
+      "label": "am pin",
+      "sublabel": "인용할 버전 고정",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-memory.py",
+          "line": 325,
+          "end_line": 340
+        }
+      ]
+    },
+    {
+      "id": "saved",
+      "lane": "review",
+      "col": 3,
+      "type": "database",
+      "label": "불변 근거",
+      "sublabel": "data/alignment-evidence",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-memory.py",
+          "line": 325,
+          "end_line": 335
+        }
+      ]
+    },
+    {
+      "id": "backup",
+      "lane": "review",
+      "col": 4,
+      "type": "database",
+      "label": "restic 백업",
+      "sublabel": "암호화 · 로컬 저장",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/evidence_store.py",
+          "line": 133,
+          "end_line": 152
+        }
+      ]
+    },
+    {
+      "id": "write",
+      "lane": "memory",
+      "col": 3,
+      "type": "database",
+      "label": "Markdown 노드",
+      "sublabel": "유용한 결정만 수동 갱신",
+      "width": 160,
+      "sources": [
+        {
+          "path": "docs/review.md",
+          "line": 5,
+          "end_line": 7
+        }
+      ]
+    },
+    {
+      "id": "ack",
+      "lane": "memory",
+      "col": 4,
+      "type": "backend",
+      "label": "acknowledge",
+      "sublabel": "기록 · 변화 없음 · 보류",
+      "width": 160,
+      "sources": [
+        {
+          "path": "scripts/alignment-capture.py",
+          "line": 188,
+          "end_line": 207
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "native-hook",
+      "from": "native",
+      "to": "hook",
+      "variant": "default"
+    },
+    {
+      "id": "hook-queue",
+      "from": "hook",
+      "to": "queue",
+      "variant": "default"
+    },
+    {
+      "id": "queue-worker",
+      "from": "queue",
+      "to": "worker",
+      "variant": "default"
+    },
+    {
+      "id": "worker-generation",
+      "from": "worker",
+      "to": "generation",
+      "variant": "default"
+    },
+    {
+      "id": "generation-search",
+      "from": "generation",
+      "to": "search",
+      "variant": "default"
+    },
+    {
+      "id": "search-find",
+      "from": "search",
+      "to": "find",
+      "variant": "default"
+    },
+    {
+      "id": "find-get",
+      "from": "find",
+      "to": "get",
+      "variant": "default"
+    },
+    {
+      "id": "worker-checkpoint",
+      "from": "worker",
+      "to": "checkpoint",
+      "variant": "dashed",
+      "label": "조건부"
+    },
+    {
+      "id": "checkpoint-review",
+      "from": "checkpoint",
+      "to": "review",
+      "variant": "dashed",
+      "label": "검토 알림"
+    },
+    {
+      "id": "get-review",
+      "from": "get",
+      "to": "review",
+      "variant": "default",
+      "label": "확인한 원문"
+    },
+    {
+      "id": "review-pin",
+      "from": "review",
+      "to": "pin",
+      "variant": "default",
+      "label": "기록할 선택"
+    },
+    {
+      "id": "pin-saved",
+      "from": "pin",
+      "to": "saved",
+      "variant": "default"
+    },
+    {
+      "id": "saved-backup",
+      "from": "saved",
+      "to": "backup",
+      "variant": "default"
+    },
+    {
+      "id": "saved-write",
+      "from": "saved",
+      "to": "write",
+      "variant": "default",
+      "label": "검토 후 수동"
+    },
+    {
+      "id": "write-ack",
+      "from": "write",
+      "to": "ack",
+      "variant": "default"
+    }
+  ],
+  "mainPath": [
+    "native",
+    "hook",
+    "queue",
+    "worker",
+    "generation"
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "자동 수집 ≠ 자동 정렬",
+      "items": [
+        "훅은 MD를 작성하지 않음. 체크포인트는 원문 좌표와 최근 사용자 표본.",
+        "Claude 80%는 statusline 관측을 설치했을 때만. Codex는 PreCompact로 대체.",
+        "검색은 CLI를 호출했을 때 실행. 검색 세대는 마지막 성공한 색인 기준."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "실패와 변경",
+      "items": [
+        "색인 실패 시 이전 세대 유지. 실패 작업은 worker --retry로 재시도.",
+        "변화 없음·보류는 MD 생성 없이 검토 결과만 남김.",
+        "pin의 백업 실패는 근거 저장과 별도로 보고. 같은 디스크 백업은 기기 손실에 불충분."
+      ]
+    }
+  ]
+}

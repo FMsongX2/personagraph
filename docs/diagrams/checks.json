@@ -1,0 +1,31 @@
+{
+  "startup": {
+    "type": "workflow",
+    "quality": "showcase",
+    "gates": {
+      "validate": "pass",
+      "deliver": "pass",
+      "check": "pass",
+      "browser-check": "pass"
+    },
+    "visualReview": "not-requested",
+    "specification_sha256": "f380b0e9ae8f10faf739d8f2fc06834a83e9aae165039ca30486005919090361",
+    "artifact_sha256": "18003fec576683be23d796caf87b3651ab78f798bc8dfbfd1a1831a505aac12e",
+    "repository_revision": "1f0372f7e2ad0f9252b76e7dcded1d76162bb88a"
+  },
+  "evidence": {
+    "type": "workflow",
+    "quality": "showcase",
+    "gates": {
+      "validate": "pass",
+      "deliver": "pass",
+      "check": "pass",
+      "browser-check": "pass"
+    },
+    "visualReview": "passed",
+    "specification_sha256": "83ab72f8c35bead1f3d8f30965b7de32003e8929113e5ac20d6e4af580fb4730",
+    "artifact_sha256": "89513fdb76679973d179536790fc1c090afef0c896917ea683270fd87b1ace74",
+    "repository_revision": "1f0372f7e2ad0f9252b76e7dcded1d76162bb88a",
+    "visual_review_scope": "1440x900 light and 2048x1320 dark captures inspected; routes, labels and containment readable"
+  }
+}

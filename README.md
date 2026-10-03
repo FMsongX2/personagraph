@@ -1,5 +1,7 @@
 # PersonaGraph
 
+**English** | [한국어](README_ko.md)
+
 Local, CLI-first alignment memory for Claude Code and Codex.
 
 Keep a small Markdown graph of user-confirmed choices and their reasons. Search public session history through aichat-search, verify exact message evidence, and preserve cited versions with encrypted local backups. Automatic capture produces review checkpoints; it never writes active alignment policy by itself.
@@ -7,6 +9,10 @@ Keep a small Markdown graph of user-confirmed choices and their reasons. Search 
 **Early alpha, POSIX only.** The development environment is macOS. Linux CI is configured; its results are visible in Actions. Windows support, full large-history performance, automatic Codex 80% usage observation, and long-term alignment-quality claims are outside the current release.
 
 ## Flow
+
+[Explore the interactive workflows](https://fmsongx2.github.io/personagraph/) · [Diagram sources and checks](docs/diagrams/README.md)
+
+The Archify diagrams explain startup routing and capture/search/review separately. Diagram labels are Korean; viewer controls use the built-in English UI. Download the standalone HTML to view offline.
 
 ```text
 Native Claude / Codex transcripts
